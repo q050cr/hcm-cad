@@ -1,0 +1,684 @@
+---
+title: "HCM - CAD Cluster Analysis"
+author: "| Christoph & Ali \n"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+bibliography: ../references/references.bib
+---
+
+```{r dependencies, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_knit$set(root.dir = '/Volumes/T7 CR/data/hcm')
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(skimr)
+library(tableone)
+library(Hmisc)
+library(RColorBrewer)
+library(survival)
+library(survminer)
+library(lubridate)  # datetimes
+library(factoextra)  # plotting of kmeans
+
+
+theme_set(ggthemes::theme_few()) 
+
+# https://www.tidymodels.org/learn/statistics/k-means/
+# This vignette would have been better .. 
+
+  # ggthemes::theme_few()+
+  # ggthemes::scale_colour_few()
+```
+
+```{r load data, include=FALSE, warning=FALSE}
+# load datat
+source("scripts/rwh-data-analysis-HCM.R")   # loads data
+```
+
+
+![AG Meder](../img/meder_presentation_heart.png)
+
+
+# Cluster Analysis
+
+## Hierarchical Clustering
+
+```{r hierarchical-clustering}
+# Finding distance matrix
+distance_mat <- dist(df.first.hc[, 12:26], method = 'euclidean')
+
+# Fitting Hierarchical clustering Model to training dataset
+set.seed(240)  # Setting seed
+Hierar_cl <- hclust(distance_mat, method = "average")
+Hierar_cl
+
+# Plotting dendrogram
+plot(Hierar_cl)
+```
+
+## K-means-clustering
+
+```{r k-means-clustering}
+# kmeans.hcm<- kmeans(scale(df.first.hc[, 12:26]), centers=3, iter.max = 10, nstart = 1,
+#        algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+#                      "MacQueen"), trace=FALSE)
+set.seed(123)
+x<- scale(df.first.hc[, 12:26])
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 6, linetype = 2)
+```
+
+
+```{r k-means-clustering-for-all-6-clusterings, figures-side, fig.show='hold', out.width="33%"}
+set.seed(123)
+for(i in 2:6) {  # create 2 to 6 clusters
+  title_plot <- paste("k = ", i)
+  kmeans.hcm <- kmeans(x, centers = i, iter.max = 1000, nstart = 25)
+  
+  ### name clusters
+  ordered.index <- order(table(kmeans.hcm$cluster), decreasing=TRUE)
+  for (j in 2:max(kmeans.hcm$cluster)) {
+    cluster.name <- paste("Cluster ", j, sep = "")
+    kmeans.hcm$cluster[kmeans.hcm$cluster == ordered.index[1]] <- "No CAD"
+    kmeans.hcm$cluster[kmeans.hcm$cluster == ordered.index[j]] <- cluster.name
+  }
+  
+  # plot clusters
+  print(fviz_cluster(object = kmeans.hcm, data = df.first.hc[, 12:26],
+                     geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha =0.5,
+                     shape = 16,
+                     show.legend=FALSE) +
+          ggtitle(title_plot)+
+          ggthemes::theme_few()+
+          ggthemes::scale_color_few()+
+          theme(legend.title=element_blank())
+  )
+}
+
+set.seed(123)
+x<- scale(df.first.hc[, 12:26])
+
+centers<- 6
+kmeans.hcm.all <- list()
+for (i in 2:centers) { # create kmeans for 2:6 centers
+  kmeans.hcm.all[[i]] <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+}
+
+#kmeans.hcm.all
+```
+
+## Choose clusters
+
+We choose both 3 centers and 6 centers for k-means clustering:
+
+```{r k-means-clustering22, figures-side, fig.show='hold', out.width="50%"}
+set.seed(123)
+### A
+centers=3
+kmeans.hcm3 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.hcm3$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.hcm3$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.hcm3$cluster[kmeans.hcm3$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.hcm3$cluster[kmeans.hcm3$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.hcm3)
+
+
+aggregate(df.first.hc[, 12:26], by=list(cluster=kmeans.hcm3$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.hcm3, data = df.first.hc[, 12:26],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())
+
+df.first.hc.copy <- df.first.hc %>% 
+  mutate(kmeans3centers = kmeans.hcm3$cluster)
+#mutate(date_of_hc = as.Date(date_of_hc))
+
+### B
+centers=6
+kmeans.hcm6 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.hcm6$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.hcm6$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.hcm6$cluster[kmeans.hcm6$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.hcm6$cluster[kmeans.hcm6$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.hcm6)
+
+aggregate(df.first.hc[, 12:26], by=list(cluster=kmeans.hcm6$cluster), mean)
+# plot
+fviz_cluster(object = kmeans.hcm6, data = df.first.hc[, 12:26],
+             geom = "point", 
+             #ellipse.type = "euclid",
+             alpha =0.5,
+             shape = 16,
+             show.legend=FALSE) +
+  ggtitle(title_plot)+
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()+
+  theme(legend.title=element_blank())  
+
+df.first.hc.copy <- df.first.hc.copy %>% 
+  mutate(kmeans6centers = kmeans.hcm6$cluster)
+```
+
+
+# Survival Analysis
+
+```{r surv-analysis-data}
+surv.dat <- df.first.hc.copy %>% 
+  select(survival.time, os.status, gender, kmeans3centers, kmeans6centers, date_of_birth, date_of_procedure, diagnosis,
+         gender, bmi, family_history_of_cmp, family_history_of_scd, 
+         arterial_hypertension, dm, smoker, nyha_98, rhythm) %>% 
+  rename(time = survival.time,
+         cens = os.status) %>% 
+  mutate(cens= as.numeric(cens), 
+         time = time/365.25,
+         kmeans3to2centers = ifelse(kmeans3centers=="No CAD", 1,2),
+         kmeans6to2centers = ifelse(kmeans6centers=="No CAD", 1,2),
+         age.at.cath = lubridate::interval(date_of_birth, date_of_procedure) %>% as.period() %>% year(),
+         hyperlipidemia = ifelse(suppressWarnings(as.numeric(df.first.hc$ldl_mg_dl, na.rm=TRUE)) >110, 1, 0),
+         bmi = suppressWarnings(as.numeric(bmi))
+  ) %>% 
+  select(-c(date_of_birth, date_of_procedure))
+
+#str(surv.dat)
+```
+
+
+```{r surv-analysis-data-os-descriptive, figures-side, fig.show='hold', out.width="33%"}
+f1 <- survfit(Surv(time, cens) ~ 1, data =surv.dat)
+
+plot(survfit(Surv(time, cens) ~ 1, data = surv.dat), 
+     xlab = "Years", 
+     ylab = "Overall survival probability")
+
+tidy_surv <- broom::tidy(f1)
+ggplot(tidy_surv, aes(time, estimate))+
+  geom_line()+
+  geom_ribbon(aes(ymin=conf.low, ymax=conf.high), alpha=.25)
+
+ggsurvplot(
+  fit = survfit(Surv(time, cens)~1, data = surv.dat),
+  xlab = "Years", 
+  ylab = "Overall survival probability")
+```
+
+
+```{r surv-analysis-plot-kmeans, figures-side, fig.show='hold', out.width="50%"}
+# reorder factors with levels / not labels!!
+surv.dat["kmeans3centers"] <- factor(surv.dat$kmeans3centers, levels = c("No CAD", "Cluster 2", "Cluster 3")) #, labels=c("No CAD", "Cluster 2", "Cluster 3"))
+#surv.dat["kmeans3to2centers"] <- factor(surv.dat$kmeans3to2centers, levels = c("No CAD", "Cluster 2"))
+#surv.dat["kmeans6to2centers"] <- factor(surv.dat$kmeans6to2centers, levels = c("No CAD", "Cluster 2"))
+
+## surv curves
+ggsurvplot(
+  fit = survfit(Surv(time, cens)~kmeans3centers, data = surv.dat),
+  xlab = "Years", 
+  ylab = "Overall survival probability",
+  title="Kaplan Meier",
+  subtitle ="Stratified by 3 centers",
+  legend.title="",
+  legend.labs = c("No CAD", "Cluster 2", "Cluster 3"),
+  pval = TRUE, risk.table = TRUE)
+
+ggsurvplot(
+  fit = survfit(Surv(time, cens)~kmeans3to2centers, data = surv.dat),
+  conf.int = TRUE, 
+  risk.table = TRUE,
+  xlab = "Years", 
+  ylab = "Overall survival probability",
+  title="Kaplan Meier",
+  subtitle ="Stratified by no CAD vs k=2 & k=3",
+  legend.title="",
+  legend.labs = c("No CAD", "Cluster 2"),
+  pval = TRUE)
+
+ggsurvplot(
+  fit = survfit(Surv(time, cens)~kmeans6to2centers, data = surv.dat),
+  conf.int = TRUE,
+  xlab = "Years", 
+  ylab = "Overall survival probability", 
+  title="Kaplan Meier",
+  subtitle ="Stratified by no CAD vs k=2,...,6",
+  legend.title="",
+  legend.labs = c("No CAD", "Cluster 2"),
+  pval = TRUE, risk.table = TRUE)
+```
+
+
+```{r cox-analysis}
+fit.cox.kmeans3to2centers <- coxph(Surv(time, cens)~kmeans3to2centers, data = surv.dat)
+summary(fit.cox.kmeans3to2centers)
+
+fit.cox.adj.kmeans3to2centers <- coxph(Surv(time, cens)~kmeans3to2centers + age.at.cath + gender, data = surv.dat)
+summary(fit.cox.adj.kmeans3to2centers)
+
+fit.cox.adj.kmeans6to2centers <- coxph(Surv(time, cens)~kmeans6to2centers + age.at.cath + gender, data = surv.dat)
+summary(fit.cox.adj.kmeans6to2centers)
+```
+
+
+\clearpage
+
+
+# Demographics
+
+Here we describe the characteristics of our study population: 
+
+```{r create-table-one-dat, include=FALSE}
+fctrs <- c("cens", "kmeans3to2centers", "kmeans6to2centers","kmeans3centers", "kmeans6centers", "gender", "diagnosis",
+           "family_history_of_cmp", "arterial_hypertension", "dm", "smoker", "nyha_98", "rhythm", "hyperlipidemia")
+
+allvars <- c("cens","age.at.cath", "kmeans3to2centers", "kmeans6to2centers", "gender", 
+           "bmi", "family_history_of_cmp", "arterial_hypertension", "dm", "smoker", "nyha_98")
+
+# convert to factor
+surv.dat[fctrs] <- lapply(surv.dat[fctrs], factor)
+
+hcm.cad.table1 <- surv.dat %>% 
+  # encode factors
+  mutate_at(.vars = fctrs, .funs = factor)
+```
+
+
+```{r skim, echo=FALSE}
+skimr::skim(hcm.cad.table1)
+```
+
+
+```{r demographics, out.width="50%", include=FALSE}
+# feature distribution
+# calculate categorical value freq and plot
+# freq <- hcm.cad.table1[fctrs[-c(4:5,7)]] %>% 
+#   # convert to "long" format for tabulation by group
+#   pivot_longer(everything()) %>% 
+#   # drop NA
+#   drop_na() %>% 
+#   group_by(name, value) %>% 
+#   tally()
+# # plot freq of each feature
+# ggplot(freq, aes(value, n)) +
+#   geom_col() +
+#   facet_wrap(~ name)
+# 
+# str(hcm.cad.table1[fctrs])
+```
+
+# Table One
+
+We can get a better overview by creating a *TableOne*. 
+
+```{r tableone, echo=FALSE}
+t1 <- tableone::CreateTableOne(data=surv.dat[, names(surv.dat) != "patID"], factorVars = fctrs)
+tableone::kableone(t1)
+```
+
+## Stratum k-means
+
+### k-means 3 to 2 centers
+
+```{r tableone-strat-kmeans3to2, echo=FALSE}
+t2 <- CreateTableOne(data=surv.dat[, names(surv.dat) != "patID"], 
+                     strata = "kmeans3to2centers", 
+                     vars = colnames(surv.dat)[-c(4,5,15,16)],
+                     factorVars = fctrs[-2])
+tableone::kableone(t2)
+```
+
+
+We also look at the segments affected in the Coronary Angiogram: 
+
+```{r 15segments-summary1}
+t2.coronary <- CreateTableOne(data=df.first.hc.copy[, c(12:26, 345)], 
+                     strata = "kmeans3centers", 
+                     vars = colnames(df.first.hc.copy)[12:26]
+                     #vars = colnames(surv.dat)[-c(4,5,14,15)],
+                     )
+tableone::kableone(t2.coronary, test=TRUE)
+```
+
+
+### k-means 6 to 2 centers
+
+```{r tableone-strat-gender, echo=FALSE}
+t3 <- CreateTableOne(data=surv.dat[, names(surv.dat) != "patID"], 
+                     strata = "kmeans6to2centers", 
+                     vars = colnames(surv.dat)[-c(4,5,15,16)],
+                     factorVars = fctrs[-4])
+tableone::kableone(t3)
+```
+
+
+```{r 15segments-summary2}
+t3.coronary <- CreateTableOne(data=df.first.hc.copy[, c(12:26, 346)], 
+                     strata = "kmeans6centers", 
+                     vars = colnames(df.first.hc.copy)[12:26]
+                     #vars = colnames(surv.dat)[-c(4,5,14,15)],
+                     )
+tableone::kableone(t3.coronary, test=TRUE)
+```
+
+\clearpage
+
+# Control patients from Best Ageing Cohort
+
+### Prepare the dataset to be analyzed
+
+```{r}
+load(file = "../BestAgeing/data-rwh/ba-hc-dat.rds")  # loads from BA df.ba.hc.ofinterest
+```
+
+
+Select cols and create case_control column
+
+```{r}
+df.first.hc.copy %>% 
+  select(procedure_number, gender, date_of_birth, date_of_procedure) %>% 
+  mutate(age.at.cath = lubridate::interval(date_of_birth, date_of_procedure) %>% as.period() %>% year(),
+         #bmi = suppressWarnings(as.numeric(bmi)),
+         case_control = "HCM"
+  ) %>% 
+  select(-c(date_of_birth, date_of_procedure)) -> ccoptimalmatching.hcm
+
+# prepare control Best Ageing dat
+df.ba.hc.ofinterest %>% 
+  # filter out cad
+  filter(disease != "cad") %>% 
+  select(procedure_number, sex_factor, date_of_birth, date_of_procedure) %>% 
+  mutate(age.at.cath = lubridate::interval(date_of_birth, date_of_procedure) %>% as.period() %>% year(),
+         case_control = "BestAgeing",
+         gender = ifelse(sex_factor == "m", 1, 2)  # gender 1 = male
+  ) %>% 
+   select(-c(date_of_birth, date_of_procedure, sex_factor)) -> ccoptimalmatching.ba
+
+summary(ccoptimalmatching.ba$age.at.cath)
+summary(ccoptimalmatching.hcm$age.at.cath)
+
+matchingdata <- rbind(ccoptimalmatching.hcm, ccoptimalmatching.ba)
+
+# https://cran.r-project.org/web/packages/ccoptimalmatch/vignettes/ccoptimalmatching_vignette.html
+```
+
+```{r}
+m.out1 <- MatchIt::matchit(as.factor(case_control) ~ age.at.cath + gender, data=matchingdata, 
+                 method="nearest")
+m.out1
+summary(m.out1)
+plot(m.out1, type = "jitter", interactive = FALSE)
+# plot(m.out1, type = "qq", interactive = FALSE,
+#      which.xs = c("age.at.cath", "gender"))
+
+m.data1 <- MatchIt::match.data(m.out1)
+```
+
+## Join matched data with HC data
+
+
+```{r}
+combined.cath.data <- df.first.hc.copy %>% 
+  select(1:26) %>% 
+  mutate("disease" = "HCM")
+
+df.ba.hc.ofinterest %>% select(1:28, -c("best_ageing_code")) %>% 
+  rbind(combined.cath.data) ->combined.cath.data
+
+
+m.data.hc <- 
+  m.data1 %>% 
+  dplyr::left_join(combined.cath.data, by=("procedure_number"))
+```
+
+Age and Gender summary statistics for HCM and Best Ageing Group: 
+
+*HCM Patients*
+
+Summary stats + SD + Frequency of gender distribution:
+
+```{r}
+summary(m.data.hc[m.data.hc$case_control == "HCM",][,"age.at.cath"])
+sd(pull(m.data.hc[m.data.hc$case_control == "HCM",][,"age.at.cath"]))
+table(m.data.hc[m.data.hc$case_control == "HCM",][,"gender"])
+```
+
+*BA control Patients*
+
+Summary stats + SD + Frequency of gender distribution:
+
+```{r summary-stats}
+summary(m.data.hc[m.data.hc$case_control == "BestAgeing",][,"age.at.cath"])
+sd(pull(m.data.hc[m.data.hc$case_control == "BestAgeing",][,"age.at.cath"]))
+table(m.data.hc[m.data.hc$case_control == "BestAgeing",][,"gender"])
+```
+
+
+# k-means with Control group
+
+
+```{r k-means-clustering, figures-side, fig.show='hold', out.width="50%"}
+set.seed(123)
+x<- scale(m.data.hc[, 19:33])
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 6, linetype = 2) +
+  ggthemes::theme_few()+
+  ggthemes::scale_color_few()
+
+fviz_nbclust(x, kmeans, method = "wss") +
+  geom_vline(xintercept = 8, linetype = 2) +
+  ggthemes::theme_few()+
+  ggthemes::scale_colour_few()
+```
+
+## Run all objects from $k=2$ to $k=8$
+
+
+```{r k-means-clustering-for-all-8-clusterings, figures-side, fig.show='hold', out.width="25%"}
+set.seed(123)
+x<- scale(m.data.hc[, 19:33])
+
+# print plots and save object
+kmeans.hcm_control.all <- list()
+for(i in 2:8) {
+  # get elements
+  plot_title <- paste("k = ", i, collapse = "")
+  kmeans.hcm_control <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+  
+  ### name clusters
+  ordered.index <- order(table(kmeans.hcm_control$cluster), decreasing=TRUE)
+  for (j in 2:max(kmeans.hcm_control$cluster)) {
+    cluster.name <- paste("Cluster ", j, sep = "")
+    kmeans.hcm_control$cluster[kmeans.hcm_control$cluster == ordered.index[1]] <- "No CAD"
+    kmeans.hcm_control$cluster[kmeans.hcm_control$cluster == ordered.index[j]] <- cluster.name
+  }
+  
+  print(fviz_cluster(object = kmeans.hcm_control, data = m.data.hc[, 19:33],
+                     geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha=0.1, 
+                     shape = 16,
+                     show.legend=FALSE) +
+    ggtitle(plot_title) +
+    geom_point(aes(shape = m.data.hc$case_control), alpha = 0.8)+
+    ggthemes::theme_few()+
+    ggthemes::scale_colour_few()+
+    theme(legend.title=element_blank())
+  )
+  # print mean stats
+  print(aggregate(m.data.hc[, 19:33], by=list(cluster=kmeans.hcm_control$cluster), mean))
+  
+  # finally run kmeans again and store object
+  kmeans.hcm_control.all[[i]] <- kmeans(x, centers=i, iter.max = 1000, nstart = 25)
+}
+```
+
+
+## Choose clusters
+
+We choose both 3 centers and 6 centers for k-means clustering:
+
+```{r k-means-clustering-chosen3, figures-side, fig.show='hold', out.width="75%"}
+set.seed(123)
+## 3 centers
+centers=3
+kmeans.hcm_control3 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+
+### name clusters
+ordered.index <- order(table(kmeans.hcm_control3$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.hcm_control3$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.hcm_control3$cluster[kmeans.hcm_control3$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.hcm_control3$cluster[kmeans.hcm_control3$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.hcm_control3)
+aggregate(m.data.hc[, 19:33], by=list(cluster=kmeans.hcm_control3$cluster), mean)
+
+# plot
+fviz_cluster(object = kmeans.hcm_control3, data = m.data.hc[, 19:33], 
+             geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha=0.1, 
+                     shape = 16,
+                     show.legend=FALSE) +
+    ggtitle("k = 3") +
+    geom_point(aes(shape = m.data.hc$case_control), alpha = 0.8)+
+    ggthemes::theme_few()+
+    ggthemes::scale_colour_few()+
+    theme(legend.title=element_blank())
+
+
+m.data.hc <- m.data.hc %>% 
+  mutate(kmeans3centers = kmeans.hcm_control3$cluster)
+#mutate(date_of_hc = as.Date(date_of_hc))
+```
+
+
+```{r k-means-clustering-chosen6-a, figures-side, fig.show='hold', out.width="75%"}
+set.seed(123)
+## 6 centers
+centers=6
+kmeans.hcm_control6 <- kmeans(x, centers, iter.max = 1000, nstart = 25)
+### name clusters
+ordered.index <- order(table(kmeans.hcm_control6$cluster), decreasing=TRUE)
+for (j in 2:max(kmeans.hcm_control6$cluster)) {
+  cluster.name <- paste("Cluster ", j, sep = "")
+  kmeans.hcm_control6$cluster[kmeans.hcm_control6$cluster == ordered.index[1]] <- "No CAD"
+  kmeans.hcm_control6$cluster[kmeans.hcm_control6$cluster == ordered.index[j]] <- cluster.name
+}
+
+#print(kmeans.hcm_control6)
+aggregate(m.data.hc[, 19:33], by=list(cluster=kmeans.hcm_control6$cluster), mean)
+
+# plot
+fviz_cluster(object = kmeans.hcm_control6, data = m.data.hc[, 19:33],
+             geom = "point", 
+                     #ellipse.type = "euclid",
+                     alpha=0.1, 
+                     shape = 16,
+                     show.legend=FALSE) +
+    ggtitle("k = 6") +
+    geom_point(aes(shape = m.data.hc$case_control), alpha = 0.8)+
+    ggthemes::theme_few()+
+    ggthemes::scale_colour_few()+
+    theme(legend.title=element_blank())
+
+m.data.hc <- m.data.hc %>% 
+  mutate(kmeans6centers = kmeans.hcm_control6$cluster)
+```
+
+
+## Summary Stats and Table Ones
+
+```{r comparisons-mean-control}
+# m.data.hc %>% 
+#   group_by(case_control) %>% 
+#   select(19:33) %>% 
+#   dplyr::summarise(dplyr::across(dplyr::everything(), 
+#                                  list(mean=mean, sd=sd))
+#                    )
+
+## overall table 01
+table1.data <- m.data.hc %>% select(2:4, 19:33, kmeans3centers:kmeans6centers) %>% 
+  mutate(gender=factor(gender, labels =  c("male", "female")),
+         case_control = factor(case_control),
+         kmeans3centers = factor(kmeans3centers),
+         kmeans6centers = factor(kmeans6centers)
+         )
+
+t1.compare <- CreateTableOne(data=table1.data)
+tableone::kableone(t1.compare)
+```
+
+
+### Added Stratum HCM vs Control
+
+Although we performed matching on age and gender we have a significantly older control population (too little control examinations). In the following table we are also going to look at the difference in stenosis between control and HCM patients. 
+
+```{r table01-strata-control}
+t1.compare2 <- CreateTableOne(data=table1.data, vars=colnames(table1.data)[-3],
+                     strata = "case_control", 
+                     )
+tableone::kableone(t1.compare2)
+```
+
+
+### Added Stratum $k=3$
+
+In the following table we observe mean and sd values in each of the 15 segments. Furthermore, we observe that CAD increases with the clusters and with age whereas there is no difference whether the patient belongs to Control or HCM group ($p=0.343$).
+
+```{r table01-strata-control-kmean3}
+t1.compare3 <- CreateTableOne(data=table1.data[,-20], vars = colnames(table1.data)[-(19:20)] ,
+                     strata = "kmeans3centers"#, test = FALSE 
+                     )
+tableone::kableone(t1.compare3)
+```
+
+
+
+\clearpage
+
+# References
+
+<div id="refs"></div>
+
+\clearpage
+# Software
+
+This analysis was carried out using the statistical software `r base::version$version.string`.
+
+Apart from R's base functionality, the following packages were used: <br/>
+
+
+```{r software, echo=FALSE}
+# or faster with function...
+installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+```
+
+![](../img/uni_heidelberg.png){width=20%}
+
+email: christoph.reich@med.uni-heidelberg.de

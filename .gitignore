@@ -1,0 +1,24 @@
+.Rproj.user
+.Rhistory
+.Rdata
+.httr-oauth
+.DS_Store
+._*
+
+# dirs
+abstract/
+data/
+data-from-rscript/
+data-rwh/
+dimmeler/
+diskussion/
+img/
+original/
+paper-backing/
+presentation/
+references/
+reports/
+
+scripts/hk-connect-HCM.R
+scripts/rwh-data-analysis-HCM.R
+scripts/20220518_cluster-analysis-cad-hcm.Rmd
